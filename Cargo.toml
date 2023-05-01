@@ -1,5 +1,5 @@
 [package]
-name = "feeplace"
+name = "prettyplace"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 nannou = "*"
 rand = "*"
-ndarray = "*"
-ndarray-linalg = "*"
+ndarray = "0.13"
+itertools = "*"
+
