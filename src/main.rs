@@ -1,12 +1,10 @@
-// use itertools::izip;
 use nannou::color::*;
 use nannou::prelude::WindowEvent::KeyPressed;
 use nannou::prelude::{App, Closed, Draw, Event, Frame, Update};
-// use ndarray::prelude::*;
-// use ndarray_linalg::Scalar;
+use rand::prelude::SliceRandom;
 use rand::Rng;
 use std::time::Duration;
-// use std::vec::Vec;
+use std::vec;
 mod loc;
 use loc::Loc;
 
@@ -18,6 +16,7 @@ struct Charges {
 
 struct Model {
     charges: Charges,
+    nets: Vec<Vec<usize>>,
     sim_delta: std::time::Duration,
     fps_delta: std::time::Duration,
     sim_steps: u64,
@@ -34,6 +33,8 @@ const SIM_DELTA: Duration = Duration::new(0, 16_666_666);
 const SIMS_PER_DENSITY: u64 = 10;
 const JUMP: f32 = 5.0;
 const NUM_CHARGES: usize = 200;
+const NUM_NETS: usize = 3;
+const NET_SIZE: usize = 5;
 const W: f32 = 600.0;
 const H: f32 = 600.0;
 const X_RES: usize = 16;
@@ -49,9 +50,15 @@ fn main() {
 fn random_init() -> Model {
     let mut rng = rand::thread_rng();
     let mut loc: ndarray::Array1<Loc> = ndarray::Array1::zeros(NUM_CHARGES);
+    let mut nets = vec![];
     for l in &mut loc {
         l.x = rng.gen_range(0.0, W);
         l.y = rng.gen_range(0.0, H);
+    }
+    let mut charges: Vec<usize> = (0..NUM_CHARGES).collect();
+    charges.shuffle(&mut rng);
+    for net in charges.chunks(NET_SIZE).take(NUM_NETS) {
+        nets.push(net.to_owned());
     }
     let q = ndarray::Array::from_elem(NUM_CHARGES, 3.0);
     Model {
@@ -65,6 +72,7 @@ fn random_init() -> Model {
         matrix_y: ndarray::Array2::zeros((NUM_CHARGES, NUM_CHARGES)),
         potential: ndarray::Array2::zeros((X_RES, Y_RES)),
         sim_steps: 0,
+        nets: nets,
     }
 }
 
@@ -164,6 +172,21 @@ fn event(_app: &App, m: &mut Model, event: Event) {
 
 fn view(_app: &App, m: &Model, _frame: Frame) {
     let draw: Draw = _app.draw();
+    draw_cells(m, &draw);
+    draw_density(m, &draw);
+    draw_nets(m, &draw);
+    draw_stats(m, &draw);
+    draw.background().color(BLACK);
+    draw.to_frame(_app, &_frame).unwrap();
+}
+
+fn draw_stats(m: &Model, draw: &Draw) {
+    if m.fps != 0 {
+        draw.text(&m.fps.to_string()).y(m.origin.y - 10.0);
+    }
+}
+
+fn draw_cells(m: &Model, draw: &Draw) {
     let it = m.charges.loc.iter().zip(m.charges.q.iter());
     for (loc, charge) in it.clone() {
         let v = nannou::prelude::Vec2::new(loc.x, loc.y);
@@ -173,6 +196,9 @@ fn view(_app: &App, m: &Model, _frame: Frame) {
             .width(*charge)
             .xy(v + m.origin);
     }
+}
+
+fn draw_density(m: &Model, draw: &Draw) {
     for x in 0..X_RES {
         for y in 0..Y_RES {
             let here = nannou::prelude::Vec2::new(x as f32 * X_STEP, y as f32 * Y_STEP);
@@ -185,9 +211,24 @@ fn view(_app: &App, m: &Model, _frame: Frame) {
             //TODO oversample and average
         }
     }
-    if m.fps != 0 {
-        draw.text(&m.fps.to_string()).y(m.origin.y - 10.0);
+}
+
+fn draw_nets(m: &Model, draw: &Draw) {
+    let mut net_hue = 0.0;
+    for net in &m.nets {
+        net_hue += 0.19;
+        net_hue %= 1.0;
+        for charge1 in net {
+            for charge2 in net {
+                let loc1 = m.charges.loc[[*charge1]];
+                let loc2 = m.charges.loc[[*charge2]];
+                let v1 = nannou::prelude::Vec2::new(loc1.x, loc1.y);
+                let v2 = nannou::prelude::Vec2::new(loc2.x, loc2.y);
+                draw.line()
+                    .start(v1 + m.origin)
+                    .end(v2 + m.origin)
+                    .hsv(net_hue, 1.0, 1.0);
+            }
+        }
     }
-    draw.background().color(BLACK);
-    draw.to_frame(_app, &_frame).unwrap();
 }
