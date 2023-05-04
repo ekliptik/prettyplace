@@ -31,15 +31,17 @@ struct Model {
 // TODO make this less global
 const SIM_DELTA: Duration = Duration::new(0, 16_666_666);
 const SIMS_PER_DENSITY: u64 = 10;
-const JUMP: f32 = 5.0;
+const JUMP: f32 = 3.0;
+const JUMP_NET: f32 = 0.001;
 const NUM_CHARGES: usize = 200;
-const NUM_NETS: usize = 3;
+const NUM_NETS: usize = 10;
+const NUM_GLOBAL_NETS: usize = 4;
 const NET_SIZE: usize = 5;
 const W: f32 = 600.0;
 const H: f32 = 600.0;
 const X_RES: usize = 16;
 const Y_RES: usize = 16;
-const MAX_POT: f32 = 14.0 * (NUM_CHARGES as f32 / 100.0);
+const MAX_POT: f32 = 6.0 * (NUM_CHARGES as f32 / 100.0);
 const X_STEP: f32 = W / X_RES as f32;
 const Y_STEP: f32 = H / Y_RES as f32;
 
@@ -59,6 +61,14 @@ fn random_init() -> Model {
     charges.shuffle(&mut rng);
     for net in charges.chunks(NET_SIZE).take(NUM_NETS) {
         nets.push(net.to_owned());
+    }
+    for _ in 0..NUM_GLOBAL_NETS {
+        nets.push(vec![]);
+        for net in charges.chunks(NET_SIZE).take(NUM_NETS) {
+            nets.last_mut()
+                .unwrap()
+                .push(net[rng.gen_range(0, net.len())]);
+        }
     }
     let q = ndarray::Array::from_elem(NUM_CHARGES, 3.0);
     Model {
@@ -114,6 +124,35 @@ fn move_charges(m: &mut Model) {
         loc.x = (loc.x + add_x[i] * JUMP).max(0.0).min(W);
         loc.y = (loc.y + add_y[i] * JUMP).max(0.0).min(H);
     }
+    for net in &m.nets {
+        let mut center = Loc { x: 0.0, y: 0.0 };
+        for charge in net {
+            center = center + m.charges.loc[[*charge]] / net.len() as f32;
+        }
+        let get_loc = |i: &usize| m.charges.loc[[*i]];
+        let op_x = |op: fn(f32, f32) -> f32| {
+            net.iter()
+                .map(get_loc)
+                .fold(center.x, |leftmost, loc| op(leftmost, loc.x))
+        };
+        let op_y = |op: fn(f32, f32) -> f32| {
+            net.iter()
+                .map(get_loc)
+                .fold(center.y, |leftmost, loc| op(leftmost, loc.y))
+        };
+        let x = op_x(f32::max) - op_x(f32::min);
+        let y = op_y(f32::max) - op_y(f32::min);
+        let hpwl = x + y;
+        for charge in net {
+            let loc = &mut m.charges.loc[[*charge]];
+            loc.x = (loc.x + (center.x - loc.x) * hpwl * JUMP_NET)
+                .max(0.0)
+                .min(W);
+            loc.y = (loc.y + (center.y - loc.y) * hpwl * JUMP_NET)
+                .max(0.0)
+                .min(H);
+        }
+    }
 }
 
 fn calc_fps(m: &mut Model) {
@@ -132,12 +171,14 @@ fn calc_potential(m: &mut Model) {
             for y in 0..Y_RES {
                 let here = nannou::prelude::Vec2::new(x as f32 * X_STEP, y as f32 * Y_STEP);
                 m.potential[[x, y]] = 0.0;
+                let center = nannou::prelude::Vec2::new(X_STEP / 2.0, Y_STEP / 2.0);
                 let it = m.charges.loc.iter().zip(m.charges.q.iter());
                 for (loc, charge) in it {
                     let v = nannou::prelude::Vec2::new(loc.x, loc.y);
-                    m.potential[[x, y]] += charge / v.distance(here);
+                    m.potential[[x, y]] += charge / v.distance(here + center);
                 }
                 m.potential[[x, y]] /= MAX_POT;
+                m.potential[[x, y]] -= 0.25;
             }
         }
     }
@@ -220,14 +261,16 @@ fn draw_nets(m: &Model, draw: &Draw) {
         net_hue %= 1.0;
         for charge1 in net {
             for charge2 in net {
-                let loc1 = m.charges.loc[[*charge1]];
-                let loc2 = m.charges.loc[[*charge2]];
-                let v1 = nannou::prelude::Vec2::new(loc1.x, loc1.y);
-                let v2 = nannou::prelude::Vec2::new(loc2.x, loc2.y);
-                draw.line()
-                    .start(v1 + m.origin)
-                    .end(v2 + m.origin)
-                    .hsv(net_hue, 1.0, 1.0);
+                if *charge1 > *charge2 {
+                    let loc1 = m.charges.loc[[*charge1]];
+                    let loc2 = m.charges.loc[[*charge2]];
+                    let v1 = nannou::prelude::Vec2::new(loc1.x, loc1.y);
+                    let v2 = nannou::prelude::Vec2::new(loc2.x, loc2.y);
+                    draw.line()
+                        .start(v1 + m.origin)
+                        .end(v2 + m.origin)
+                        .hsv(net_hue, 1.0, 1.0);
+                }
             }
         }
     }
