@@ -26,12 +26,13 @@ struct Model {
     matrix_x: ndarray::Array2<f32>,
     matrix_y: ndarray::Array2<f32>,
     potential: ndarray::Array2<f32>,
+    want_move: bool,
 }
 
 // TODO make this less global
 const SIM_DELTA: Duration = Duration::new(0, 16_666_666);
 const SIMS_PER_DENSITY: u64 = 10;
-const JUMP: f32 = 3.0;
+const JUMP: f32 = 1.0;
 const JUMP_NET: f32 = 0.001;
 const NUM_CHARGES: usize = 200;
 const NUM_NETS: usize = 10;
@@ -54,8 +55,8 @@ fn random_init() -> Model {
     let mut loc: ndarray::Array1<Loc> = ndarray::Array1::zeros(NUM_CHARGES);
     let mut nets = vec![];
     for l in &mut loc {
-        l.x = rng.gen_range(0.0, W);
-        l.y = rng.gen_range(0.0, H);
+        l.x = rng.gen_range(0.0..W);
+        l.y = rng.gen_range(0.0..H);
     }
     let mut charges: Vec<usize> = (0..NUM_CHARGES).collect();
     charges.shuffle(&mut rng);
@@ -67,7 +68,7 @@ fn random_init() -> Model {
         for net in charges.chunks(NET_SIZE).take(NUM_NETS) {
             nets.last_mut()
                 .unwrap()
-                .push(net[rng.gen_range(0, net.len())]);
+                .push(net[rng.gen_range(0..net.len())]);
         }
     }
     let q = ndarray::Array::from_elem(NUM_CHARGES, 3.0);
@@ -83,6 +84,7 @@ fn random_init() -> Model {
         potential: ndarray::Array2::zeros((X_RES, Y_RES)),
         sim_steps: 0,
         nets: nets,
+        want_move: false,
     }
 }
 
@@ -94,7 +96,8 @@ fn dir_dist(a: &Loc, b: &Loc) -> Loc {
     let ddd = *a - *b;
     let sq: f32 = ddd.x.powf(2.0) + ddd.y.powf(2.0);
     if sq == 0.0 {
-        return Loc { x: 0.0, y: 0.0 };
+        unreachable!();
+        // return Loc { x: 0.0, y: 0.0 };
     } else {
         return ddd / sq;
     }
@@ -189,6 +192,7 @@ fn event(_app: &App, m: &mut Model, event: Event) {
             Some(Closed) => std::process::exit(0),
             Some(KeyPressed(keycode)) => match keycode {
                 nannou::prelude::Key::R => *m = model(_app),
+                nannou::prelude::Key::S => m.want_move = true,
                 _ => {}
             },
             _ => {}
@@ -201,9 +205,12 @@ fn event(_app: &App, m: &mut Model, event: Event) {
             m.fps_delta += since_last;
             if m.sim_delta > SIM_DELTA {
                 m.sim_delta -= SIM_DELTA;
-                update_matrix(m);
-                move_charges(m);
-                calc_potential(m);
+                // if m.want_move {
+                    update_matrix(m);
+                    move_charges(m);
+                    calc_potential(m);
+                    m.want_move = false;
+                // }
             }
             calc_fps(m);
         }
@@ -213,8 +220,8 @@ fn event(_app: &App, m: &mut Model, event: Event) {
 
 fn view(_app: &App, m: &Model, _frame: Frame) {
     let draw: Draw = _app.draw();
-    draw_cells(m, &draw);
     draw_density(m, &draw);
+    draw_cells(m, &draw);
     draw_nets(m, &draw);
     draw_stats(m, &draw);
     draw.background().color(BLACK);
@@ -229,13 +236,14 @@ fn draw_stats(m: &Model, draw: &Draw) {
 
 fn draw_cells(m: &Model, draw: &Draw) {
     let it = m.charges.loc.iter().zip(m.charges.q.iter());
-    for (loc, charge) in it.clone() {
+    for (i, (loc, _charge)) in it.clone().enumerate() {
         let v = nannou::prelude::Vec2::new(loc.x, loc.y);
-        draw.rect()
-            .color(AZURE)
-            .height(*charge)
-            .width(*charge)
-            .xy(v + m.origin);
+        // draw.rect()
+        //     .color(AZURE)
+        //     .height(*charge)
+        //     .width(*charge)
+        //     .xy(v + m.origin);
+        draw.text(&i.to_string()).xy(v + m.origin);
     }
 }
 
